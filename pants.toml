@@ -403,6 +403,11 @@ restrict_push_urls = [
 # if a commit is made from within pants: skip them.
 verify_commit = false
 
+[python-repos]
+repos.add = [
+  '/Users/dmcclanahan/tools/pex/dist',
+]
+
 [python-setup]
 interpreter_cache_dir = "%(pants_bootstrapdir)s/python_cache/interpreters"
 resolver_cache_dir = "%(pants_bootstrapdir)s/python_cache/requirements"

@@ -13,7 +13,7 @@ from pex.interpreter import PythonIdentity, PythonInterpreter
 from pex.pex_builder import PEXBuilder
 from pex.pex_info import PexInfo
 from pex.platforms import Platform
-from pex.resolver import resolve
+from pex.resolver import UrlResolvedDistribution, resolve, url_resolve
 from pex.util import DistributionHelper
 from pex.version import __version__ as pex_version
 from pkg_resources import Distribution, get_provider
@@ -181,13 +181,18 @@ class PexBuilderWrapper:
         self._frozen = False
 
         self._generate_ipex = generate_ipex
-        # If we generate a .ipex, we need to ensure all the code we copy into the underlying PEXBuilder
-        # is also added to the new PEXBuilder created in `._shuffle_original_build_info_into_ipex()`.
+        # If we generate a .ipex, we need to ensure all the code we copy into the underlying
+        # PEXBuilder is also added to the new PEXBuilder created in
+        # `._shuffle_original_build_info_into_ipex()`.
         self._all_added_sources_resources: List[Path] = []
-        # If we generate a dehydrated "ipex" file, we need to make sure that it is aware of any special
-        # find_links repos attached to any single requirement, so it can later resolve those
+        # If we generate a dehydrated "ipex" file, we need to make sure that it is aware of any
+        # special find_links repos attached to any single requirement, so it can later resolve those
         # requirements when it is first bootstrapped, using the same resolve options.
         self._all_find_links: OrderedSet[str] = OrderedSet()
+        # We don't perform a normal pex resolve when creating an ipex -- we just keep track of
+        # requirements and their URLs!
+        self._url_resolved_distributions: List[UrlResolvedDistribution] = []
+
 
     def add_requirement_libs_from(self, req_libs, platforms=None):
         """Multi-platform dependency resolution for PEX files.
@@ -200,7 +205,14 @@ class PexBuilderWrapper:
                                             Defaults to the platforms specified by PythonSetup.
         """
         reqs = [req for req_lib in req_libs for req in req_lib.requirements]
-        self.add_resolved_requirements(reqs, platforms=platforms)
+
+        if self._generate_ipex:
+            url_resolved_distributions = self._url_resolve_requirements(reqs, platforms=platforms)
+            for url_resolved in url_resolved_distributions:
+                self._url_resolved_distributions.append(url_resolved)
+                self._builder.add_requirement(url_resolved.requirement)
+        else:
+            self.add_resolved_requirements(reqs, platforms=platforms)
 
     class SingleDistExtractionError(Exception):
         pass
@@ -225,6 +237,46 @@ class PexBuilderWrapper:
                 f"Exactly one dist was expected to match name {dist_key} in requirements {reqs}: {e!r}"
             )
         return matched_dist
+
+    def _url_resolve_requirements(
+        self,
+        reqs: List[PythonRequirement],
+        platforms: Optional[List[Platform]] = None,
+    ) -> List[UrlResolvedDistribution]:
+        python_setup = self._python_setup_subsystem
+        python_repos = self._python_repos_subsystem
+        platforms = platforms or python_setup.platforms
+
+        find_links = []
+        find_links.extend(python_repos.repos)
+
+        deduped_reqs = OrderedSet(reqs)
+        find_links: OrderedSet[str] = OrderedSet()
+        for req in deduped_reqs:
+            self._log.debug(f"  Using requirement: {req}")
+            if req.repository:
+                find_links.add(req.repository)
+
+        # Individual requirements from pants may have a `repository` link attached to them, which is
+        # extracted in `self.resolve_distributions()`. When generating a .ipex file with
+        # `generate_ipex=True`, we want to ensure these repos are known to the ipex launcher when it
+        # tries to resolve all the requirements from BOOTSTRAP-PEX-INFO.
+        self._all_find_links.update(find_links)
+
+        cache_dir = os.path.join(
+            python_setup.resolver_cache_dir,
+            'url-resolve',
+            str(self._builder.interpreter.identity))
+
+        return url_resolve(
+            requirements=[str(req.requirement) for req in reqs],
+            interpreters=[self._builder.interpreter],
+            platforms=platforms,
+            find_links=find_links,
+            cache=cache_dir,
+            allow_prereleases=python_setup.resolver_allow_prereleases,
+            manylinux=python_setup.manylinux,
+        )
 
     def resolve_distributions(
         self, reqs: List[PythonRequirement], platforms: Optional[List[Platform]] = None,
@@ -425,19 +477,19 @@ class PexBuilderWrapper:
             info, interpreter_constraints=[str(major_minor_only_constraint)]
         )
 
-    def _shuffle_underlying_pex_builder(self) -> Tuple[PexInfo, Path]:
-        """Replace the original builder with a new one, and just pull files from the old chroot."""
+    def _update_interpreter_constraint_for_ipex(self) -> None:
+        """TODO/???
         # Ensure that (the interpreter selected to resolve requirements when the ipex is first run) is
         # (the exact same interpreter we used to resolve those requirements here). This is the only (?)
         # way to ensure that the ipex bootstrap uses the *exact* same interpreter version.
+        """
         self._builder.info = self._set_major_minor_interpreter_constraint_for_ipex(
             self._builder.info, self._builder.interpreter.identity
         )
 
-        # Remove all the original top-level requirements in favor of the transitive == requirements.
-        self._builder.info = ipex_launcher.modify_pex_info(self._builder.info, requirements=[])
-        transitive_reqs = [dist.as_requirement() for dist in self._distributions.values()]
-        self.add_direct_requirements(transitive_reqs)
+    def _shuffle_underlying_pex_builder(self) -> Tuple[PexInfo, Path]:
+        """Replace the original builder with a new one, and just pull files from the old chroot."""
+        self._update_interpreter_constraint_for_ipex()
 
         orig_info = self._builder.info.copy()
 
@@ -445,11 +497,7 @@ class PexBuilderWrapper:
 
         # Mutate the PexBuilder object which is manipulated by this subsystem.
         self._builder = PEXBuilder(interpreter=self._builder.interpreter)
-        self._builder.info = self._set_major_minor_interpreter_constraint_for_ipex(
-            self._builder.info, self._builder.interpreter.identity
-        )
-
-        self._distributions = {}
+        self._update_interpreter_constraint_for_ipex()
 
         return (orig_info, Path(orig_chroot.path()))
 
@@ -478,21 +526,28 @@ class PexBuilderWrapper:
         # includes all of the links from python_repos.repos, as well as any links added within any
         # individual requirements from that resolve.
 
-        resolver_settings = dict(
-            indexes=list(python_repos.indexes),
-            find_links=list(self._all_find_links),
-            allow_prereleases=UnsetBool.coerce_bool(
+        resolver_settings = {
+            'indexes': list(python_repos.indexes),
+            'find_links': list(self._all_find_links),
+            'allow_prereleases': UnsetBool.coerce_bool(
                 python_setup.resolver_allow_prereleases, default=True
             ),
-            use_manylinux=python_setup.use_manylinux,
-        )
+            'manylinux': python_setup.use_manylinux,
+        }
 
         # IPEX-INFO: A json mapping interpreted in ipex_launcher.py:
         # {
         #   "code": [<which source files to add to the "hydrated" pex when bootstrapped>],
         #   "resolver_settings": {<which indices to search for requirements from when bootstrapping>},
         # }
-        ipex_info = dict(code=prefixed_code_paths, resolver_settings=resolver_settings,)
+        ipex_info = {
+            'code': prefixed_code_paths,
+            'resolver_settings': resolver_settings,
+            'requirements_with_urls': {
+                url_resolved.requirement: url_resolved.url
+                for url_resolved in self._url_resolved_distributions
+            },
+        }
         with temporary_file(permissions=0o644) as ipex_info_file:
             ipex_info_file.write(json.dumps(ipex_info).encode())
             ipex_info_file.flush()
