@@ -350,7 +350,7 @@ class _HydrateableRequirementSet(object):
     def create(cls, requirements_with_urls, bootstrap_builder):
         wheels = []
         non_wheels = []
-        for requirement_string, url in requirements_with_urls.items():
+        for requirement_string, url in requirements_with_urls:
             requirement = Requirement.parse(requirement_string)
             name = requirement.name
             specs = requirement.specs

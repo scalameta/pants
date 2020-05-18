@@ -538,10 +538,10 @@ class PexBuilderWrapper:
         ipex_info = {
             'code': prefixed_code_paths,
             'resolver_settings': resolver_settings,
-            'requirements_with_urls': {
-                url_resolved.requirement: url_resolved.url
+            'requirements_with_urls': [
+                (url_resolved.requirement, url_resolved.url)
                 for url_resolved in self._url_resolved_distributions
-            },
+            ],
         }
         with temporary_file(permissions=0o644) as ipex_info_file:
             ipex_info_file.write(json.dumps(ipex_info).encode())
