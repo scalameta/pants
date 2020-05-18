@@ -6,8 +6,8 @@ import os
 import re
 import shutil
 
-from pex import pep425tags
 from pex.interpreter import PythonInterpreter
+from pex.platforms import Platform
 
 from pants.backend.native.targets.native_library import NativeLibrary
 from pants.backend.native.tasks.link_shared_libraries import SharedLibrary
@@ -251,7 +251,7 @@ class BuildLocalPythonDistributions(Task):
         egg_info_snapshot_tag_args = ["egg_info", f"--tag-build=+{snapshot_fingerprint}"]
         bdist_whl_args = ["bdist_wheel"]
         if is_platform_specific:
-            platform_args = ["--plat-name", pep425tags.get_platform()]
+            platform_args = ["--plat-name", str(Platform.current())]
         else:
             platform_args = []
 

@@ -8,7 +8,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
-from pex.fetcher import Fetcher
 from pex.interpreter import PythonIdentity, PythonInterpreter
 from pex.pex_builder import PEXBuilder
 from pex.pex_info import PexInfo
@@ -369,9 +368,6 @@ class PexBuilderWrapper:
         find_links = list(find_links) if find_links else []
         find_links.extend(python_repos.repos)
 
-        fetchers = python_repos.get_fetchers()
-        fetchers.extend(Fetcher([path]) for path in find_links)
-
         # Individual requirements from pants may have a `repository` link attached to them, which is
         # extracted in `self.resolve_distributions()`. When generating a .ipex file with
         # `generate_ipex=True`, we want to ensure these repos are known to the ipex launcher when it
@@ -387,13 +383,12 @@ class PexBuilderWrapper:
             resolved_dists = resolve(
                 requirements=[str(req.requirement) for req in requirements],
                 interpreter=interpreter,
-                fetchers=fetchers,
+                indexes=python_repos.indexes,
+                find_links=find_links,
                 platform=platform,
-                context=python_repos.get_network_context(),
                 cache=requirements_cache_dir,
-                cache_ttl=python_setup.resolver_cache_ttl,
                 allow_prereleases=python_setup.resolver_allow_prereleases,
-                use_manylinux=python_setup.use_manylinux,
+                manylinux=python_setup.manylinux,
             )
             distributions[platform] = [
                 resolved_dist.distribution for resolved_dist in resolved_dists
@@ -532,7 +527,7 @@ class PexBuilderWrapper:
             'allow_prereleases': UnsetBool.coerce_bool(
                 python_setup.resolver_allow_prereleases, default=True
             ),
-            'manylinux': python_setup.use_manylinux,
+            'manylinux': python_setup.manylinux,
         }
 
         # IPEX-INFO: A json mapping interpreted in ipex_launcher.py:

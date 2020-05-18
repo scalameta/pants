@@ -4,7 +4,7 @@
 import os
 from textwrap import dedent
 
-from pex import pep425tags
+from pex.platforms import Platform
 
 from pants.backend.python.register import build_file_aliases as register_python
 from pants.backend.python.targets.python_binary import PythonBinary
@@ -31,7 +31,7 @@ def name_and_platform(whl):
 
 
 def normalized_current_platform():
-    return normalize_platform_tag(pep425tags.get_platform())
+    return normalize_platform_tag(str(Platform.current()))
 
 
 class PythonTaskTestBase(TaskTestBase):
