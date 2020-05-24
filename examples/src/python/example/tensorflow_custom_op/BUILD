@@ -46,6 +46,9 @@ python_binary(
     'examples/3rdparty/python:tensorflow',
   ],
   compatibility=['CPython>=3.6,<4'],
+  platforms=[
+    'linux_x86_64-cp-36-m',
+  ],
 )
 
 files(

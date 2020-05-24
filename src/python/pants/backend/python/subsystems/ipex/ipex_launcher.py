@@ -195,10 +195,12 @@ def get_sdist_installer():
 
 # FIXME: this method should be using some more official algorithm to parse these URLs!
 def _extract_download_filename(name, url):
-    matched = re.match(r'^https?://.*/([^/]+)\.(whl|WHL|tar\.gz)#sha256=.*$', url)
+    matched = re.match(r'^(file|https?)://.*/([^/]+)\.(whl|WHL|tar\.gz)(#sha256=.*|)$', url)
     if not matched:
         raise TypeError('url for project {} did not match expected format: {}'.format(name, url))
-    filename_base, ext = matched.groups()
+
+    _scheme, filename_base, ext, _sha = matched.groups()
+
     download_filename = '{}.{}'.format(filename_base, ext)
     return download_filename
 
@@ -247,8 +249,9 @@ class _RemoteWheel(_RemoteDistribution):
                         shutil.copyfileobj(response, download_file_stream)
 
         download_file_abspath = '{}/{}'.format(downloaded_subdir_abspath, wheel_name)
-        os.symlink(src=download_file_abspath,
-                   dst=wheel_output_path)
+        if not os.path.exists(wheel_output_path):
+            os.symlink(src=download_file_abspath,
+                       dst=wheel_output_path)
 
         assert os.path.exists(wheel_output_path), wheel_output_path
         return wheel_output_path
@@ -303,6 +306,10 @@ def _download_urls_parallel(output_dir, remote_distributions):
 def _resolve_non_wheels(non_wheel_output_dir, non_wheels, bootstrap_builder):
     _log('non_wheel_output_dir: {}'.format(non_wheel_output_dir))
     _log('non_wheels: {}'.format(non_wheels))
+
+    if len(non_wheels) == 0:
+        return
+
     # Note that this iterator should *not* block on the urls downloading yet!
     all_non_wheel_requirements = _download_urls_parallel(
         output_dir=non_wheel_output_dir,

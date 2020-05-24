@@ -206,10 +206,12 @@ class PexBuilderWrapper:
         reqs = [req for req_lib in req_libs for req in req_lib.requirements]
 
         if self._generate_ipex:
-            url_resolved_distributions = self._url_resolve_requirements(reqs, platforms=platforms)
-            for url_resolved in url_resolved_distributions:
-                self._url_resolved_distributions.append(url_resolved)
-                self._builder.add_requirement(url_resolved.requirement)
+            url_resolved_distributions_by_platform = self._url_resolve_requirements(
+                reqs, platforms=platforms)
+            for dists_by_platform in url_resolved_distributions_by_platform:
+                for url_resolved in dists_by_platform:
+                    self._url_resolved_distributions.append(url_resolved)
+                    # self._builder.add_requirement(url_resolved.requirement)
         else:
             self.add_resolved_requirements(reqs, platforms=platforms)
 
@@ -250,7 +252,6 @@ class PexBuilderWrapper:
         find_links.extend(python_repos.repos)
 
         deduped_reqs = OrderedSet(reqs)
-        find_links: OrderedSet[str] = OrderedSet()
         for req in deduped_reqs:
             self._log.debug(f"  Using requirement: {req}")
             if req.repository:
@@ -269,11 +270,12 @@ class PexBuilderWrapper:
 
         return url_resolve(
             requirements=[str(req.requirement) for req in reqs],
+            allow_prereleases=python_setup.resolver_allow_prereleases,
             interpreters=[self._builder.interpreter],
             platforms=platforms,
+            indexes=python_repos.indexes,
             find_links=find_links,
             cache=cache_dir,
-            allow_prereleases=python_setup.resolver_allow_prereleases,
             manylinux=python_setup.manylinux,
         )
 
@@ -328,18 +330,18 @@ class PexBuilderWrapper:
         locations: Set[str] = set()
         for platform, dists in distributions.items():
             for dist in dists:
-                if dist.location not in locations:
-                    if self._generate_ipex and not override_ipex_build_do_actually_add_distribution:
-                        self._log.debug(
+                # import pdb; pdb.set_trace()
+                if self._generate_ipex and not override_ipex_build_do_actually_add_distribution:
+                    self._log.debug(
                             f"  *AVOIDING* dumping distribution into ipex: .../{os.path.basename(dist.location)}"
                         )
-                        self._register_distribution(dist)
-                    else:
-                        self._log.debug(
-                            f"  Dumping distribution: .../{os.path.basename(dist.location)}"
-                        )
-                        self.add_distribution(dist)
-                locations.add(dist.location)
+                    self._register_distribution(dist)
+                elif (dist.location not in locations) or override_ipex_build_do_actually_add_distribution:
+                    self._log.debug(
+                        f"  Dumping distribution: .../{os.path.basename(dist.location)}"
+                    )
+                    self.add_distribution(dist)
+                    locations.add(dist.location)
 
     def _resolve_multi(
         self,
@@ -576,7 +578,10 @@ class PexBuilderWrapper:
         # produced when the .ipex is first executed will read and resolve all those requirements from
         # the BOOTSTRAP-PEX-INFO.
         self.add_resolved_requirements(
-            [self._pex_requirement, self._setuptools_requirement,],
+            [
+                self._pex_requirement,
+                self._setuptools_requirement,
+            ],
             override_ipex_build_do_actually_add_distribution=True,
         )
 

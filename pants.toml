@@ -411,6 +411,7 @@ repos.add = [
 [python-setup]
 interpreter_cache_dir = "%(pants_bootstrapdir)s/python_cache/interpreters"
 resolver_cache_dir = "%(pants_bootstrapdir)s/python_cache/requirements"
+# resolver_manylinux = "manylinux2010"
 
 [pytest]
 pytest_plugins.add = [

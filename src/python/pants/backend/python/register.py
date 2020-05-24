@@ -69,7 +69,7 @@ def build_file_aliases():
         objects={
             "python_requirement": PythonRequirement,
             "python_artifact": PythonArtifact,
-            # "setup_py": PythonArtifact,
+            "setup_py": PythonArtifact,
         },
         context_aware_object_factories={
             "python_requirements": PythonRequirements,
