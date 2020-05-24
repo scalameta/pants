@@ -111,16 +111,11 @@ class PluginResolver:
         )
         resolved_dists = resolver.resolve(
             self._plugin_requirements,
-            fetchers=self._python_repos.get_fetchers(),
+            indexes=self._python_repos.indexes,
+            find_links=self._python_repos.repos,
             interpreter=self._interpreter,
-            context=self._python_repos.get_network_context(),
             cache=self.plugin_cache_dir,
-            # Effectively never expire.
-            cache_ttl=10 * 365 * 24 * 60 * 60,
             allow_prereleases=PANTS_SEMVER.is_prerelease,
-            # Plugins will all depend on `pantsbuild.pants` which is
-            # distributed as a manylinux wheel.
-            use_manylinux=True,
         )
         return [resolved_dist.distribution for resolved_dist in resolved_dists]
 

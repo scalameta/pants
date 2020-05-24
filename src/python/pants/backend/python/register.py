@@ -37,7 +37,7 @@ from pants.backend.python.tasks.python_repl import PythonRepl
 from pants.backend.python.tasks.python_run import PythonRun
 from pants.backend.python.tasks.resolve_requirements import ResolveRequirements
 from pants.backend.python.tasks.select_interpreter import SelectInterpreter
-# from pants.backend.python.tasks.setup_py import SetupPy
+from pants.backend.python.tasks.setup_py import SetupPy
 from pants.backend.python.tasks.unpack_wheels import UnpackWheels
 from pants.build_graph.build_file_aliases import BuildFileAliases
 from pants.build_graph.resources import Resources
@@ -87,7 +87,7 @@ def register_goals():
     task(name="pytest-prep", action=PytestPrep).install("test")
     task(name="pytest", action=PytestRun).install("test")
     task(name="py", action=PythonRepl).install("repl")
-    # task(name="setup-py", action=SetupPy).install()
+    task(name="setup-py", action=SetupPy).install()
     task(name="py", action=PythonBinaryCreate).install("binary")
     task(name="py-wheels", action=LocalPythonDistributionArtifact).install("binary")
     task(name="py", action=PythonBundle).install("bundle")
@@ -104,6 +104,6 @@ def rules():
         *python_create_binary.rules(),
         *python_native_code.rules(),
         *repl.rules(),
-        # *run_setup_py.rules(),
+        *run_setup_py.rules(),
         *subprocess_environment.rules(),
     )
