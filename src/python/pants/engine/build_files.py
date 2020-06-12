@@ -4,7 +4,8 @@
 
 import os.path
 from collections.abc import MutableMapping, MutableSequence
-from typing import Dict
+from dataclasses import dataclass
+from typing import Dict, Optional
 
 from twitter.common.collections import OrderedSet
 
@@ -43,6 +44,12 @@ class ResolvedTypeMismatchError(ResolveError):
 def _key_func(entry):
     key, value = entry
     return key
+
+
+@dataclass(frozen=True)
+class AddressAndMaybeFamily:
+    address: Address
+    address_family: Optional[AddressFamily]
 
 
 @rule
@@ -93,20 +100,34 @@ def _raise_did_you_mean(address_family: AddressFamily, name: str, source=None) -
 
 
 @rule
-async def find_build_file(address: Address) -> BuildFileAddress:
-    address_family = await Get[AddressFamily](Dir(address.spec_path))
-    if address not in address_family.addressables:
-        _raise_did_you_mean(address_family=address_family, name=address.target_name)
+async def find_build_file(address_and_maybe_family: AddressAndMaybeFamily) -> BuildFileAddress:
+    if address_and_maybe_family.address_family is None:
+        address_family = await Get[AddressFamily](Dir(address_and_maybe_family.address.spec_path))
+    else:
+        address_family = address_and_maybe_family.address_family
+
+    if address_and_maybe_family.address not in address_family.addressables:
+        _raise_did_you_mean(
+            address_family=address_family, name=address_and_maybe_family.address.target_name
+        )
     return next(
         build_file_address
         for build_file_address in address_family.addressables.keys()
-        if build_file_address == address
+        if build_file_address == address_and_maybe_family.address
     )
 
 
 @rule
+async def address_without_family(address: Address) -> AddressAndMaybeFamily:
+    return AddressAndMaybeFamily(address, None)
+
+
+@rule
 async def find_build_files(addresses: Addresses) -> BuildFileAddresses:
-    bfas = await MultiGet(Get[BuildFileAddress](Address, address) for address in addresses)
+    bfas = await MultiGet(
+        Get[BuildFileAddress](AddressAndMaybeFamily, AddressAndMaybeFamily(address, None))
+        for address in addresses
+    )
     return BuildFileAddresses(bfas)
 
 
@@ -117,8 +138,10 @@ async def hydrate_struct(address_mapper: AddressMapper, address: Address) -> Hyd
     Recursively collects any embedded addressables within the Struct, but will not walk into a
     dependencies field, since those should be requested explicitly by rules.
     """
-    build_file_address = await Get[BuildFileAddress](Address, address)
     address_family = await Get[AddressFamily](Dir(address.spec_path))
+    build_file_address = await Get[BuildFileAddress](
+        AddressAndMaybeFamily, AddressAndMaybeFamily(address, address_family)
+    )
     struct = address_family.addressables.get(build_file_address)
 
     inline_dependencies = []
@@ -305,6 +328,7 @@ def create_graph_rules(address_mapper: AddressMapper):
     return [
         address_mapper_singleton,
         # BUILD file parsing.
+        address_without_family,
         hydrate_struct,
         parse_address_family,
         find_build_file,
